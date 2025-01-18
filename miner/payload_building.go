@@ -288,7 +288,13 @@ func (payload *Payload) stopBuilding() {
 
 // buildPayload builds the payload according to the provided parameters.
 func (miner *Miner) buildPayload(args *BuildPayloadArgs, witness bool) (*Payload, error) {
+	now := time.Now()
+	log.Info("buildPayload start", "args.Parent", args.Parent)
+	defer func() {
+		log.Info("buildPayload finished", "elapsedMS", time.Since(now).Milliseconds())
+	}()
 	if args.NoTxPool { // don't start the background payload updating job if there is no tx pool to pull from
+		log.Info("buildPayload -> args.NoTxPool", "args.Parent", args.Parent)
 		// Build the initial version with no transaction included. It should be fast
 		// enough to run. The empty payload can at least make sure there is something
 		// to deliver for not missing slot.
@@ -308,14 +314,17 @@ func (miner *Miner) buildPayload(args *BuildPayloadArgs, witness bool) (*Payload
 			// No RPC requests allowed.
 			rpcCtx: nil,
 		}
+		log.Info("buildPayload -> args.NoTxPool: before miner.generateWork", "args.Parent", args.Parent)
 		empty := miner.generateWork(emptyParams, witness)
 		if empty.err != nil {
 			return nil, empty.err
 		}
+		log.Info("buildPayload -> args.NoTxPool: before newPayload", "args.Parent", args.Parent)
 		payload := newPayload(miner.lifeCtx, empty.block, empty.witness, args.Id())
 		// make sure to make it appear as full, otherwise it will wait indefinitely for payload building to complete.
 		payload.full = empty.block
 		payload.fullFees = empty.fees
+		log.Info("buildPayload -> args.NoTxPool: before Broadcast", "args.Parent", args.Parent)
 		payload.cond.Broadcast() // unblocks Resolve
 		return payload, nil
 	}
@@ -336,12 +345,14 @@ func (miner *Miner) buildPayload(args *BuildPayloadArgs, witness bool) (*Payload
 
 	// Since we skip building the empty block when using the tx pool, we need to explicitly
 	// validate the BuildPayloadArgs here.
+	log.Info("buildPayload: before validateParams", "args.Parent", args.Parent)
 	blockTime, err := miner.validateParams(fullParams)
 	if err != nil {
 		return nil, err
 	}
-
+	log.Info("buildPayload: before newPayload", "args.Parent", args.Parent)
 	payload := newPayload(miner.lifeCtx, nil, nil, args.Id())
+	log.Info("buildPayload: after newPayload", "args.Parent", args.Parent)
 	// set shared interrupt
 	fullParams.interrupt = payload.interrupt
 	fullParams.rpcCtx = payload.rpcCtx
@@ -349,12 +360,16 @@ func (miner *Miner) buildPayload(args *BuildPayloadArgs, witness bool) (*Payload
 	// Spin up a routine for updating the payload in background. This strategy
 	// can maximum the revenue for including transactions with highest fee.
 	go func() {
+		log.Info("buildPayload.go: start", "args.Parent", args.Parent)
 		// Setup the timer for re-building the payload. The initial clock is kept
 		// for triggering process immediately.
 		timer := time.NewTimer(0)
 		defer timer.Stop()
 
 		start := time.Now()
+		defer func() {
+			log.Info("buildPayload.go: finished", "args.Parent", args.Parent, "elapsedMS", time.Since(start).Milliseconds())
+		}()
 		// Setup the timer for terminating the payload building process as determined
 		// by validateParams.
 		endTimer := time.NewTimer(blockTime)
@@ -389,8 +404,10 @@ func (miner *Miner) buildPayload(args *BuildPayloadArgs, witness bool) (*Payload
 		for {
 			select {
 			case <-miner.lifeCtx.Done():
+				log.Info("buildPayload.go: miner-shutdown", "args.Parent", args.Parent)
 				stopReason = "miner-shutdown"
 			case <-timer.C:
+				log.Info("buildPayload.go: <-timer.C", "args.Parent", args.Parent)
 				// We have to prioritize the stop signal because the recommit timer
 				// might have fired while stop also got closed.
 				select {
@@ -406,8 +423,10 @@ func (miner *Miner) buildPayload(args *BuildPayloadArgs, witness bool) (*Payload
 				}
 				lastDuration = updatePayload()
 			case <-payload.stop:
+				log.Info("buildPayload.go: <-payload.stop", "args.Parent", args.Parent)
 				return
 			case <-endTimer.C:
+				log.Info("buildPayload.go: <-endTimer.C", "args.Parent", args.Parent)
 				stopReason = "timeout"
 				return
 			}
