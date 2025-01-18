@@ -124,7 +124,10 @@ type generateParams struct {
 
 // generateWork generates a sealing block based on the given parameters.
 func (miner *Miner) generateWork(params *generateParams, witness bool) *newPayloadResult {
+	log.Info("generateWork. Start")
 	work, err := miner.prepareWork(params, witness)
+	log.Info("generateWork. after miner.prepareWork")
+
 	if err != nil {
 		return &newPayloadResult{err: err}
 	}
@@ -144,6 +147,7 @@ func (miner *Miner) generateWork(params *generateParams, witness bool) *newPaylo
 	}
 
 	misc.EnsureCreate2Deployer(miner.chainConfig, work.header.Time, work.state)
+	log.Info("generateWork. before for _, tx := range params.txs")
 
 	for _, tx := range params.txs {
 		from, _ := types.Sender(work.signer, tx)
@@ -153,7 +157,11 @@ func (miner *Miner) generateWork(params *generateParams, witness bool) *newPaylo
 			return &newPayloadResult{err: fmt.Errorf("failed to force-include tx: %s type: %d sender: %s nonce: %d, err: %w", tx.Hash(), tx.Type(), from, tx.Nonce(), err)}
 		}
 	}
+	log.Info("generateWork. before if !params.noTxs")
+
 	if !params.noTxs {
+		log.Info("generateWork. if !params.noTxs in!")
+
 		// use shared interrupt if present
 		interrupt := params.interrupt
 		if interrupt == nil {
@@ -171,6 +179,8 @@ func (miner *Miner) generateWork(params *generateParams, witness bool) *newPaylo
 			log.Info("Block building got interrupted by payload resolution")
 		}
 	}
+	log.Info("generateWork. before if intr := params.interrupt; intr != nil && params.isUpdate && intr.Load() != commitInterruptNone")
+
 	if intr := params.interrupt; intr != nil && params.isUpdate && intr.Load() != commitInterruptNone {
 		return &newPayloadResult{err: errInterruptedUpdate}
 	}
@@ -181,14 +191,20 @@ func (miner *Miner) generateWork(params *generateParams, witness bool) *newPaylo
 		allLogs = append(allLogs, r.Logs...)
 	}
 	// Read requests if Prague is enabled.
+	log.Info("generateWork. before if miner.chainConfig.IsPrague(work.header.Number, work.header.Time)")
+
 	if miner.chainConfig.IsPrague(work.header.Number, work.header.Time) {
+		log.Info("generateWork. before  core.ParseDepositLogs")
 		requests, err := core.ParseDepositLogs(allLogs, miner.chainConfig)
 		if err != nil {
 			return &newPayloadResult{err: err}
 		}
 		body.Requests = requests
 	}
+	log.Info("generateWork. before miner.engine.FinalizeAndAssemble")
 	block, err := miner.engine.FinalizeAndAssemble(miner.chain, work.header, work.state, &body, work.receipts)
+	log.Info("generateWork. after miner.engine.FinalizeAndAssemble")
+
 	if err != nil {
 		return &newPayloadResult{err: err}
 	}
