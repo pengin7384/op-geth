@@ -149,15 +149,20 @@ func (miner *Miner) generateWork(params *generateParams, witness bool) *newPaylo
 	misc.EnsureCreate2Deployer(miner.chainConfig, work.header.Time, work.state)
 	log.Info("generateWork. before for _, tx := range params.txs")
 
+	var senderTime, commitTime time.Duration
 	for _, tx := range params.txs {
+		beforeSender := time.Now()
 		from, _ := types.Sender(work.signer, tx)
+		senderTime += time.Since(beforeSender)
 		work.state.SetTxContext(tx.Hash(), work.tcount)
+		beforeCommit := time.Now()
 		err = miner.commitTransaction(work, tx)
+		commitTime += time.Since(beforeCommit)
 		if err != nil {
 			return &newPayloadResult{err: fmt.Errorf("failed to force-include tx: %s type: %d sender: %s nonce: %d, err: %w", tx.Hash(), tx.Type(), from, tx.Nonce(), err)}
 		}
 	}
-	log.Info("generateWork. before if !params.noTxs")
+	log.Info("generateWork. before if !params.noTxs", "senderTimeMS", senderTime.Milliseconds(), "commitTimeMS", commitTime.Milliseconds())
 
 	if !params.noTxs {
 		log.Info("generateWork. if !params.noTxs in!")
