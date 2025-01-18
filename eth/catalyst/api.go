@@ -326,8 +326,11 @@ func (api *ConsensusAPI) forkchoiceUpdated(update engine.ForkchoiceStateV1, payl
 	// Check whether we have the block yet in our database or not. If not, we'll
 	// need to either trigger a sync, or to reject this forkchoice update for a
 	// reason.
+	log.Trace("Before api.eth.BlockChain().GetBlockByHash")
 	block := api.eth.BlockChain().GetBlockByHash(update.HeadBlockHash)
+	log.Trace("After api.eth.BlockChain().GetBlockByHash")
 	if block == nil {
+		log.Trace("block == nil")
 		// If this block was previously invalidated, keep rejecting it here too
 		if res := api.checkInvalidAncestor(update.HeadBlockHash, update.HeadBlockHash); res != nil {
 			return engine.ForkChoiceResponse{PayloadStatus: *res, PayloadID: nil}, nil
@@ -360,6 +363,7 @@ func (api *ConsensusAPI) forkchoiceUpdated(update engine.ForkchoiceStateV1, payl
 		}
 		return engine.STATUS_SYNCING, nil
 	}
+	log.Trace("Before block.Difficulty().BitLen()")
 	// Block is known locally, just sanity check that the beacon client does not
 	// attempt to push us back to before the merge.
 	if block.Difficulty().BitLen() > 0 || block.NumberU64() == 0 {
@@ -387,16 +391,20 @@ func (api *ConsensusAPI) forkchoiceUpdated(update engine.ForkchoiceStateV1, payl
 			PayloadID:     id,
 		}
 	}
+	log.Trace("Before rawdb.ReadCanonicalHash")
 	if rawdb.ReadCanonicalHash(api.eth.ChainDb(), block.NumberU64()) != update.HeadBlockHash {
+		log.Trace("if rawdb.ReadCanonicalHash(api.eth.ChainDb(), block.NumberU64()) != update.HeadBlockHash")
 		// Block is not canonical, set head.
 		if latestValid, err := api.eth.BlockChain().SetCanonical(block); err != nil {
 			return engine.ForkChoiceResponse{PayloadStatus: engine.PayloadStatusV1{Status: engine.INVALID, LatestValidHash: &latestValid}}, err
 		}
 	} else if api.eth.BlockChain().CurrentBlock().Hash() == update.HeadBlockHash {
+		log.Trace("else if api.eth.BlockChain().CurrentBlock().Hash() == update.HeadBlockHash")
 		// If the specified head matches with our local head, do nothing and keep
 		// generating the payload. It's a special corner case that a few slots are
 		// missing and we are requested to generate the payload in slot.
 	} else if api.eth.BlockChain().Config().Optimism == nil { // minor Engine API divergence: allow proposers to reorg their own chain
+		log.Trace("else if api.eth.BlockChain().Config().Optimism == nil")
 		// If the head block is already in our canonical chain, the beacon client is
 		// probably resyncing. Ignore the update.
 		log.Info("Ignoring beacon update to old head", "number", block.NumberU64(), "hash", update.HeadBlockHash, "age", common.PrettyAge(time.Unix(int64(block.Time()), 0)), "have", api.eth.BlockChain().CurrentBlock().Number)
@@ -406,6 +414,7 @@ func (api *ConsensusAPI) forkchoiceUpdated(update engine.ForkchoiceStateV1, payl
 
 	// If the beacon client also advertised a finalized block, mark the local
 	// chain final and completely in PoS mode.
+	log.Trace("before update.FinalizedBlockHash != (common.Hash{})")
 	if update.FinalizedBlockHash != (common.Hash{}) {
 		// If the finalized block is not in our canonical tree, something is wrong
 		finalBlock := api.eth.BlockChain().GetBlockByHash(update.FinalizedBlockHash)
@@ -419,6 +428,7 @@ func (api *ConsensusAPI) forkchoiceUpdated(update engine.ForkchoiceStateV1, payl
 		// Set the finalized block
 		api.eth.BlockChain().SetFinalized(finalBlock.Header())
 	}
+	log.Trace("if update.SafeBlockHash != (common.Hash{})")
 	// Check if the safe block hash is in our canonical tree, if not something is wrong
 	if update.SafeBlockHash != (common.Hash{}) {
 		safeBlock := api.eth.BlockChain().GetBlockByHash(update.SafeBlockHash)
@@ -436,7 +446,7 @@ func (api *ConsensusAPI) forkchoiceUpdated(update engine.ForkchoiceStateV1, payl
 	// If payload generation was requested, create a new block to be potentially
 	// sealed by the beacon client. The payload will be requested later, and we
 	// will replace it arbitrarily many times in between.
-
+	log.Trace("payloadAttributes != nil")
 	if payloadAttributes != nil {
 		var eip1559Params []byte
 		if api.eth.BlockChain().Config().Optimism != nil {
@@ -454,6 +464,7 @@ func (api *ConsensusAPI) forkchoiceUpdated(update engine.ForkchoiceStateV1, payl
 			}
 		}
 		transactions := make(types.Transactions, 0, len(payloadAttributes.Transactions))
+		log.Trace("Before tx unmarshal")
 		for i, otx := range payloadAttributes.Transactions {
 			var tx types.Transaction
 			if err := tx.UnmarshalBinary(otx); err != nil {
@@ -480,6 +491,7 @@ func (api *ConsensusAPI) forkchoiceUpdated(update engine.ForkchoiceStateV1, payl
 		if api.localBlocks.has(id) {
 			return valid(&id), nil
 		}
+		log.Trace("Before api.eth.Miner().BuildPayload")
 		payload, err := api.eth.Miner().BuildPayload(args, payloadWitness)
 		if err != nil {
 			log.Error("Failed to build payload", "err", err)
