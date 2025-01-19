@@ -162,7 +162,7 @@ func (miner *Miner) generateWork(params *generateParams, witness bool) *newPaylo
 			return &newPayloadResult{err: fmt.Errorf("failed to force-include tx: %s type: %d sender: %s nonce: %d, err: %w", tx.Hash(), tx.Type(), from, tx.Nonce(), err)}
 		}
 	}
-	log.Info("generateWork. before if !params.noTxs", "senderTimeMS", senderTime.Milliseconds(), "commitTimeMS", commitTime.Milliseconds())
+	log.Info("generateWork. before if !params.noTxs", "senderTimeMS", senderTime.Milliseconds(), "commitTimeMS", commitTime.Milliseconds(), "len", len(params.txs))
 
 	if !params.noTxs {
 		log.Info("generateWork. if !params.noTxs in!")
@@ -374,24 +374,28 @@ func (miner *Miner) makeEnv(parent *types.Header, header *types.Header, coinbase
 }
 
 func (miner *Miner) commitTransaction(env *environment, tx *types.Transaction) error {
+	log.Info("miner.commitTransaction: Start", "tx", tx.Hash())
 	if tx.Type() == types.BlobTxType {
 		return miner.commitBlobTransaction(env, tx)
 	}
 
 	// If a conditional is set, check prior to applying
 	if conditional := tx.Conditional(); conditional != nil {
+		log.Info("miner.commitTransaction: before txConditionalMinedTimer.UpdateSince", "tx", tx.Hash())
 		txConditionalMinedTimer.UpdateSince(tx.Time())
 
 		// check the conditional
 		if err := env.header.CheckTransactionConditional(conditional); err != nil {
 			return fmt.Errorf("failed header check: %s: %w", err, errTxConditionalInvalid)
 		}
+		log.Info("miner.commitTransaction: before if err := env.state.CheckTransactionConditional(conditional)", "tx", tx.Hash())
 		if err := env.state.CheckTransactionConditional(conditional); err != nil {
 			return fmt.Errorf("failed state check: %s: %w", err, errTxConditionalInvalid)
 		}
 	}
-
+	log.Info("miner.commitTransaction: before miner.applyTransaction", "tx", tx.Hash())
 	receipt, err := miner.applyTransaction(env, tx)
+	log.Info("miner.commitTransaction: after miner.applyTransaction", "tx", tx.Hash())
 	if err != nil {
 		return err
 	}
@@ -432,6 +436,7 @@ type LogInspector interface {
 
 // applyTransaction runs the transaction. If execution fails, state and gas pool are reverted.
 func (miner *Miner) applyTransaction(env *environment, tx *types.Transaction) (*types.Receipt, error) {
+	log.Info("miner.applyTransaction: start", "tx", tx.Hash())
 	var (
 		snap = env.state.Snapshot()
 		gp   = env.gasPool.Gas()
